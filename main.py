@@ -1,10 +1,13 @@
 import asyncio
 import sqlite3
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import (
+    Message, ReplyKeyboardMarkup, KeyboardButton,
+    InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+)
 from aiogram.filters import CommandStart
 
-BOTTOKEN = "8296081142:AAH7gYb30yDEAhPU6Er7oQQcZnPWd19oSJ8"
+BOTTOKEN = "TOKENINGIZNI_BU_YERGA_QO'YING"
 
 bot = Bot(token=BOTTOKEN)
 dp = Dispatcher()
@@ -13,7 +16,6 @@ dp = Dispatcher()
 conn = sqlite3.connect("users.db")
 cursor = conn.cursor()
 
-# Users table
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,7 +26,6 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 
-# Admins table
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS admins (
     user_id INTEGER PRIMARY KEY
@@ -127,7 +128,6 @@ async def handler(message: Message):
         else:
             user_states[user_id] = "admin"
 
-            # SAVE ADMIN TO DB
             cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
             conn.commit()
 
@@ -136,16 +136,26 @@ async def handler(message: Message):
     # ===== ADMIN PANEL =====
     elif state == "admin":
         if text == "Kursga yozilganlar":
-            cursor.execute("SELECT name, surname, phone, course FROM users")
+            cursor.execute("SELECT id, name, surname, phone, course FROM users")
             rows = cursor.fetchall()
 
             if not rows:
                 await message.answer(">> Hali hech kim yo‘q")
             else:
-                result = ">> Ro‘yxat:\n\n"
                 for r in rows:
-                    result += f"{r[0]} {r[1]}\n{r[2]}\n{r[3]}\n\n"
-                await message.answer(result)
+                    user_id_db = r[0]
+                    text_user = f"{r[1]} {r[2]}\n{r[3]}\n{r[4]}"
+
+                    delete_kb = InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [InlineKeyboardButton(
+                                text="❌ O‘chirish",
+                                callback_data=f"delete_{user_id_db}"
+                            )]
+                        ]
+                    )
+
+                    await message.answer(text_user, reply_markup=delete_kb)
 
     # ===== USER REGISTRATION =====
     elif isinstance(state, dict):
@@ -168,7 +178,6 @@ async def handler(message: Message):
         elif state["step"] == "course":
             state["course"] = text
 
-            # SAVE USER
             cursor.execute(
                 "INSERT INTO users (name, surname, phone, course) VALUES (?, ?, ?, ?)",
                 (state["name"], state["surname"], state["phone"], state["course"])
@@ -181,6 +190,17 @@ async def handler(message: Message):
                 ">> Siz kursga yozildingiz!\nAdmin javobini kuting.",
                 reply_markup=main_kb
             )
+
+# ===== DELETE USER =====
+@dp.callback_query(F.data.startswith("delete_"))
+async def delete_user(callback: CallbackQuery):
+    user_id_db = int(callback.data.split("_")[1])
+
+    cursor.execute("DELETE FROM users WHERE id=?", (user_id_db,))
+    conn.commit()
+
+    await callback.message.edit_text("✅ Foydalanuvchi o‘chirildi")
+    await callback.answer()
 
 # ===== RUN =====
 async def main():
