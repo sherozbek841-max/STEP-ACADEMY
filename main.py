@@ -7,7 +7,7 @@ from aiogram.types import (
 )
 from aiogram.filters import CommandStart
 
-BOTTOKEN = "TOKENINGIZNI_BU_YERGA_QO'YING"
+BOTTOKEN = "8296081142:AAH7gYb30yDEAhPU6Er7oQQcZnPWd19oSJ8"
 
 bot = Bot(token=BOTTOKEN)
 dp = Dispatcher()
