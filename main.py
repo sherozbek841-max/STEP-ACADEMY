@@ -81,6 +81,36 @@ async def start_handler(message: Message):
     conn.commit()
     user_states[user_id] = None
     await message.answer("Assalomu aleykum! Botimizga xush kelibsiz.", reply_markup=get_kb("main"))
+    # ===== ADMIN REJIMINI BOSGANDA DARHOL RO'YXATNI CHIQARISH =====
+@dp.message(F.text == txt['admin_btn'])
+async def admin_start(message: Message):
+    user_id = message.from_user.id
+    cursor.execute("SELECT * FROM admins WHERE user_id=?", (user_id,))
+    
+    if cursor.fetchone():
+        # Agar foydalanuvchi allaqachon admin bo'lsa
+        user_states[user_id] = "admin"
+        
+        # Bazadan ro'yxatni olish
+        cursor.execute("SELECT user_id, name, surname, phone, course FROM users WHERE name IS NOT NULL")
+        rows = cursor.fetchall()
+        
+        if not rows:
+            await message.answer(txt['no_users'])
+        else:
+            await message.answer("📋 Ro'yxatdan o'tganlar:")
+            for r in rows:
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="❌ O'chirish", callback_data=f"delete_{r[0]}")]
+                ])
+                await message.answer(
+                    f"👤 {r[1]} {r[2]}\n📞 {r[3]}\n📚 Kurs: {r[4]}", 
+                    reply_markup=kb
+                )
+    else:
+        # Agar hali admin bo'lmasa, login so'raymiz
+        user_states[user_id] = "login"
+        await message.answer(txt['enter_login'], reply_markup=get_kb("back"))
 
 @dp.message(F.text == txt['back'])
 async def back_handler(message: Message):
