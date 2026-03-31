@@ -16,9 +16,11 @@ dp = Dispatcher()
 conn = sqlite3.connect("users.db")
 cursor = conn.cursor()
 
+# Foydalanuvchilar jadvaliga 'lang' ustunini qo'shdik
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER PRIMARY KEY,
+    lang TEXT DEFAULT 'uz',
     name TEXT,
     surname TEXT,
     phone TEXT,
@@ -26,85 +28,116 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS admins (
-    user_id INTEGER PRIMARY KEY
-)
-""")
-
+cursor.execute("CREATE TABLE IF NOT EXISTS admins (user_id INTEGER PRIMARY KEY)")
 conn.commit()
+
+# ===== LUG'AT (TRANSLATIONS) =====
+texts = {
+    'uz': {
+        'start': "Assalomu aleykum! Qaysi tilda davom ettiramiz?",
+        'main_menu': "Bosh menyu",
+        'admin_btn': "Admin rejim",
+        'new_reg': "Yangi rejim",
+        'back': "Qaytish",
+        'is_admin': "Siz allaqachon adminsiz",
+        'enter_login': "Login kiriting:",
+        'ask_name': "Sizning ismingiz nima?",
+        'ask_surname': "Familiyangizni kiriting:",
+        'ask_phone': "Telefon raqamingiz:",
+        'ask_course': "Kursni tanlang:",
+        'success': "Siz kursga yozildingiz!\nAdmin javobini kuting.",
+        'no_users': "Hali hech kim yo‘q",
+        'deleted': "✅ Foydalanuvchi o‘chirildi"
+    },
+    'qr': {
+        'start': "Assalawma áleykum! Qaysı tilde dawam etemiz?",
+        'main_menu': "Bas menyu",
+        'admin_btn': "Admin rejim",
+        'new_reg': "Jańa rejim",
+        'back': "Artqa qaytıw",
+        'is_admin': "Siz artıqsha adminsiz",
+        'enter_login': "Login kiritiń:",
+        'ask_name': "Atıńız kim?",
+        'ask_surname': "Familiyańızdı kiritiń:",
+        'ask_phone': "Telefon nomerińiz:",
+        'ask_course': "Kurstı saylań:",
+        'success': "Siz kursqa jazıldıńız!\nAdmin juwabın kütiń.",
+        'no_users': "Ele hesh kim joq",
+        'deleted': "✅ Paydalanıwshı óshirildi"
+    }
+}
 
 # ===== STATES =====
 user_states = {}
 
-# ===== KEYBOARDS =====
-main_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text='Admin rejim'), KeyboardButton(text='Yangi rejim')],
-    ],
-    resize_keyboard=True
-)
+# ===== FUNKSIYALAR =====
+def get_lang(user_id):
+    cursor.execute("SELECT lang FROM users WHERE user_id=?", (user_id,))
+    res = cursor.fetchone()
+    return res[0] if res else 'uz'
 
-back_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text='Qaytish')],
-    ],
-    resize_keyboard=True
-)
+def get_kb(lang, type="main"):
+    if type == "main":
+        return ReplyKeyboardMarkup(keyboard=[
+            [KeyboardButton(text=texts[lang]['admin_btn']), KeyboardButton(text=texts[lang]['new_reg'])]
+        ], resize_keyboard=True)
+    elif type == "back":
+        return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=texts[lang]['back'])]], resize_keyboard=True)
+    elif type == "course":
+        return ReplyKeyboardMarkup(keyboard=[
+            [KeyboardButton(text='Ofis ilovalari')], [KeyboardButton(text='Ingiliz tili')],
+            [KeyboardButton(text='Rus tili')], [KeyboardButton(text='Matematika')],
+            [KeyboardButton(text='Turk tili')], [KeyboardButton(text='Python dasturi')],
+            [KeyboardButton(text=texts[lang]['back'])]
+        ], resize_keyboard=True)
 
-course_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text='Ofis ilovalari')],
-        [KeyboardButton(text='Ingiliz tili')],
-        [KeyboardButton(text='Rus tili')],
-        [KeyboardButton(text='Matematika')],
-        [KeyboardButton(text='Turk tili')],
-        [KeyboardButton(text='Python dasturi')],
-        [KeyboardButton(text='Qaytish')],
-    ],
-    resize_keyboard=True
-)
-
-admin_kb = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton(text='Kursga yozilganlar')],
-        [KeyboardButton(text='Qaytish')],
-    ],
-    resize_keyboard=True
-)
-
-# ===== START =====
+# ===== START & LANGUAGE SELECTION =====
 @dp.message(CommandStart())
 async def start_handler(message: Message):
-    user_states[message.from_user.id] = None
-    await message.answer(">> Assalomu aleykum!", reply_markup=main_kb)
+    lang_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="O'zbek tili 🇺🇿", callback_data="lang_uz")],
+        [InlineKeyboardButton(text="Qoraqolpoq tili 🏗️", callback_data="lang_qr")]
+    ])
+    await message.answer(">> Assalomu aleykum! Qaysi tilda davom ettiramiz?\n>> Assalawma áleykum! Qaysı tilde dawam etemiz?", reply_markup=lang_kb)
+
+@dp.callback_query(F.data.startswith("lang_"))
+async def set_language(callback: CallbackQuery):
+    lang = callback.data.split("_")[1]
+    user_id = callback.from_user.id
+    
+    cursor.execute("INSERT OR REPLACE INTO users (user_id, lang) VALUES (?, ?)", (user_id, lang))
+    conn.commit()
+    
+    await callback.message.delete()
+    await callback.message.answer(texts[lang]['main_menu'], reply_markup=get_kb(lang))
+    await callback.answer()
 
 # ===== QAYTISH =====
-@dp.message(F.text == "Qaytish")
+@dp.message(F.text.in_({"Qaytish", "Artqa qaytıw"}))
 async def back_handler(message: Message):
+    lang = get_lang(message.from_user.id)
     user_states[message.from_user.id] = None
-    await message.answer(">> Bosh menyu", reply_markup=main_kb)
+    await message.answer(texts[lang]['main_menu'], reply_markup=get_kb(lang))
 
 # ===== ADMIN START =====
-@dp.message(F.text == "Admin rejim")
+@dp.message(F.text.in_({"Admin rejim"}))
 async def admin_start(message: Message):
     user_id = message.from_user.id
-
+    lang = get_lang(user_id)
     cursor.execute("SELECT * FROM admins WHERE user_id=?", (user_id,))
-    admin = cursor.fetchone()
-
-    if admin:
+    if cursor.fetchone():
         user_states[user_id] = "admin"
-        await message.answer(">> Siz allaqachon adminsiz", reply_markup=admin_kb)
+        await message.answer(texts[lang]['is_admin'])
     else:
         user_states[user_id] = "login"
-        await message.answer(">> Login kiriting:", reply_markup=back_kb)
+        await message.answer(texts[lang]['enter_login'], reply_markup=get_kb(lang, "back"))
 
 # ===== USER START =====
-@dp.message(F.text == "Yangi rejim")
+@dp.message(F.text.in_({"Yangi rejim", "Jańa rejim"}))
 async def new_user(message: Message):
+    lang = get_lang(message.from_user.id)
     user_states[message.from_user.id] = {"step": "name"}
-    await message.answer(">> Sizning ismingiz nima?", reply_markup=back_kb)
+    await message.answer(texts[lang]['ask_name'], reply_markup=get_kb(lang, "back"))
 
 # ===== MAIN HANDLER =====
 @dp.message()
@@ -112,99 +145,57 @@ async def handler(message: Message):
     user_id = message.from_user.id
     text = message.text
     state = user_states.get(user_id)
+    lang = get_lang(user_id)
 
-    # ===== LOGIN =====
     if state == "login":
         if text == "stepadmin":
             user_states[user_id] = "password"
-            await message.answer(">> Parol kiriting:", reply_markup=back_kb)
-        else:
-            await message.answer(">> Login xato!")
+            await message.answer("Password?")
+        else: await message.answer("Xato!")
 
-    # ===== PASSWORD =====
     elif state == "password":
-        if len(text) < 8 or text != "12345678":
-            await message.answer(">> Parol xato!")
-        else:
+        if text == "12345678":
             user_states[user_id] = "admin"
-
             cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
             conn.commit()
+            await message.answer("Welcome Admin!")
 
-            await message.answer(">> Xush kelibsiz Admin!", reply_markup=admin_kb)
-
-    # ===== ADMIN PANEL =====
     elif state == "admin":
-        if text == "Kursga yozilganlar":
-            cursor.execute("SELECT id, name, surname, phone, course FROM users")
+        if "Kursga yozilganlar" in text or "Kurs" in text:
+            cursor.execute("SELECT user_id, name, surname, phone, course FROM users WHERE name IS NOT NULL")
             rows = cursor.fetchall()
-
-            if not rows:
-                await message.answer(">> Hali hech kim yo‘q")
+            if not rows: await message.answer(texts[lang]['no_users'])
             else:
                 for r in rows:
-                    user_id_db = r[0]
-                    text_user = f"{r[1]} {r[2]}\n{r[3]}\n{r[4]}"
+                    await message.answer(f"{r[1]} {r[2]}\n{r[3]}\n{r[4]}", 
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌", callback_data=f"delete_{r[0]}")]]))
 
-                    delete_kb = InlineKeyboardMarkup(
-                        inline_keyboard=[
-                            [InlineKeyboardButton(
-                                text="❌ O‘chirish",
-                                callback_data=f"delete_{user_id_db}"
-                            )]
-                        ]
-                    )
-
-                    await message.answer(text_user, reply_markup=delete_kb)
-
-    # ===== USER REGISTRATION =====
     elif isinstance(state, dict):
-
         if state["step"] == "name":
-            state["name"] = text
-            state["step"] = "surname"
-            await message.answer(">> Familiyangizni kiriting:")
-
+            state["name"], state["step"] = text, "surname"
+            await message.answer(texts[lang]['ask_surname'])
         elif state["step"] == "surname":
-            state["surname"] = text
-            state["step"] = "phone"
-            await message.answer(">> Telefon raqamingiz:")
-
+            state["surname"], state["step"] = text, "phone"
+            await message.answer(texts[lang]['ask_phone'])
         elif state["step"] == "phone":
-            state["phone"] = text
-            state["step"] = "course"
-            await message.answer(">> Kursni tanlang:", reply_markup=course_kb)
-
+            state["phone"], state["step"] = text, "course"
+            await message.answer(texts[lang]['ask_course'], reply_markup=get_kb(lang, "course"))
         elif state["step"] == "course":
-            state["course"] = text
-
-            cursor.execute(
-                "INSERT INTO users (name, surname, phone, course) VALUES (?, ?, ?, ?)",
-                (state["name"], state["surname"], state["phone"], state["course"])
-            )
+            cursor.execute("UPDATE users SET name=?, surname=?, phone=?, course=? WHERE user_id=?", 
+                           (state["name"], state["surname"], text, text, user_id))
             conn.commit()
-
             user_states[user_id] = None
+            await message.answer(texts[lang]['success'], reply_markup=get_kb(lang))
 
-            await message.answer(
-                ">> Siz kursga yozildingiz!\nAdmin javobini kuting.",
-                reply_markup=main_kb
-            )
-
-# ===== DELETE USER =====
 @dp.callback_query(F.data.startswith("delete_"))
 async def delete_user(callback: CallbackQuery):
-    user_id_db = int(callback.data.split("_")[1])
-
-    cursor.execute("DELETE FROM users WHERE id=?", (user_id_db,))
+    u_id = int(callback.data.split("_")[1])
+    lang = get_lang(callback.from_user.id)
+    cursor.execute("DELETE FROM users WHERE user_id=?", (u_id,))
     conn.commit()
+    await callback.message.edit_text(texts[lang]['deleted'])
 
-    await callback.message.edit_text("✅ Foydalanuvchi o‘chirildi")
-    await callback.answer()
-
-# ===== RUN =====
 async def main():
-    print("BOT ISHLAYAPTI!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
