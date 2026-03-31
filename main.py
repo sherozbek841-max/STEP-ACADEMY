@@ -7,12 +7,14 @@ from aiogram.types import (
 )
 from aiogram.filters import CommandStart
 
+# Bot tokeningiz
 BOTTOKEN = "8296081142:AAH7gYb30yDEAhPU6Er7oQQcZnPWd19oSJ8"
 
 bot = Bot(token=BOTTOKEN)
 dp = Dispatcher()
 
 # ===== SQLITE =====
+# check_same_thread=False asinxron ishlashda xatolik bermasligi uchun kerak
 conn = sqlite3.connect("users.db", check_same_thread=False)
 cursor = conn.cursor()
 
@@ -28,7 +30,7 @@ CREATE TABLE IF NOT EXISTS users (
 cursor.execute("CREATE TABLE IF NOT EXISTS admins (user_id INTEGER PRIMARY KEY)")
 conn.commit()
 
-# ===== MATNLAR (FAQAT QORAQALPOQ TILIDA) =====
+# ===== MATNLAR =====
 txt = {
     'main_menu': "Bas menyu",
     'admin_btn': "Admin rejim",
@@ -48,14 +50,14 @@ txt = {
 user_states = {}
 
 # ===== KLAVIATURALAR =====
-def get_kb(type="main"):
-    if type == "main":
+def get_kb(kb_type="main"):
+    if kb_type == "main":
         return ReplyKeyboardMarkup(keyboard=[
             [KeyboardButton(text=txt['admin_btn']), KeyboardButton(text=txt['new_reg'])]
         ], resize_keyboard=True)
-    elif type == "back":
+    elif kb_type == "back":
         return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=txt['back'])]], resize_keyboard=True)
-    elif type == "course":
+    elif kb_type == "course":
         return ReplyKeyboardMarkup(keyboard=[
             [KeyboardButton(text='Ofis ilovalari')], [KeyboardButton(text='Ingiliz tili')],
             [KeyboardButton(text='Rus tili')], [KeyboardButton(text='Matematika')],
@@ -63,52 +65,54 @@ def get_kb(type="main"):
             [KeyboardButton(text=txt['back'])]
         ], resize_keyboard=True)
 
-# ===== START (TIL SO'RAMAYDI) =====
+# ===== HANDLERS =====
+
 @dp.message(CommandStart())
 async def start_handler(message: Message):
     user_id = message.from_user.id
-    # Foydalanuvchini bazaga qo'shib qo'yamiz (agar bo'lmasa)
+    # Foydalanuvchini bazaga qo'shish
     cursor.execute("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
     conn.commit()
-    
+    user_states[user_id] = None # Holatni tozalash
     await message.answer(txt['main_menu'], reply_markup=get_kb("main"))
 
-# ===== QAYTISH =====
 @dp.message(F.text == txt['back'])
 async def back_handler(message: Message):
     user_states[message.from_user.id] = None
     await message.answer(txt['main_menu'], reply_markup=get_kb("main"))
 
-# ===== ADMIN REJIM =====
 @dp.message(F.text == txt['admin_btn'])
 async def admin_start(message: Message):
     user_id = message.from_user.id
     cursor.execute("SELECT * FROM admins WHERE user_id=?", (user_id,))
     if cursor.fetchone():
         user_states[user_id] = "admin"
-        await message.answer(txt['is_admin'])
+        await message.answer(txt['is_admin'], reply_markup=get_kb("main"))
     else:
         user_states[user_id] = "login"
         await message.answer(txt['enter_login'], reply_markup=get_kb("back"))
 
-# ===== YANGI REJIM (REGISTRATSIYA) =====
 @dp.message(F.text == txt['new_reg'])
 async def new_user(message: Message):
     user_states[message.from_user.id] = {"step": "name"}
     await message.answer(txt['ask_name'], reply_markup=get_kb("back"))
 
-# ===== ASOSIY HANDLER =====
 @dp.message()
 async def main_handler(message: Message):
     user_id = message.from_user.id
     text = message.text
     state = user_states.get(user_id)
 
+    # Agar foydalanuvchi orqaga qaytish tugmasini bossa, bu handler ishlamasligi kerak
+    if text == txt['back']:
+        return
+
     if state == "login":
         if text == "stepadmin":
             user_states[user_id] = "password"
             await message.answer("Password?")
-        else: await message.answer("Xato!")
+        else:
+            await message.answer("Login xato!")
 
     elif state == "password":
         if text == "12345678":
@@ -116,12 +120,15 @@ async def main_handler(message: Message):
             cursor.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (user_id,))
             conn.commit()
             await message.answer("Welcome Admin!", reply_markup=get_kb("main"))
+        else:
+            await message.answer("Parol xato!")
 
     elif state == "admin":
-        if "Kurs" in text or text == txt['admin_btn']:
+        if "Kurs" in text or text == "Admin rejim":
             cursor.execute("SELECT user_id, name, surname, phone, course FROM users WHERE name IS NOT NULL")
             rows = cursor.fetchall()
-            if not rows: await message.answer(txt['no_users'])
+            if not rows:
+                await message.answer(txt['no_users'])
             else:
                 for r in rows:
                     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌", callback_data=f"delete_{r[0]}")]])
@@ -156,6 +163,7 @@ async def delete_user(callback: CallbackQuery):
     await callback.message.edit_text(txt['deleted'])
 
 async def main():
+    print("Bot ishga tushdi...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
